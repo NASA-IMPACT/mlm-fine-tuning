@@ -1,0 +1,14 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+*.env
+notebooks/learning/test_model/*
+notebooks/learning/test_model_final/*
+mlm/model_outputs/*
