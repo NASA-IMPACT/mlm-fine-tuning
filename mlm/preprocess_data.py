@@ -8,13 +8,11 @@ from transformers import (
 )
 
 
-def get_dataset(
-    load_dataset_config: Dict[str, str],
+def split_dataset(
+    ds: DatasetDict,
     val_split: Optional[float],
     test_split: Optional[float],
 ) -> DatasetDict:
-    ds = DatasetDict(load_dataset(**load_dataset_config))
-
     if val_split is not None and test_split is not None:
         temp_split = ds["train"].train_test_split(
             test_size=(val_split + test_split),
@@ -33,6 +31,23 @@ def get_dataset(
             },
         )
     return ds
+
+
+def get_dataset(
+    dataset_config: Dict[str, Any],
+    data_src: str,
+    n_rows: int,
+):
+    ds = DatasetDict(load_dataset(**dataset_config.get(data_src)))
+    if n_rows:
+        ds = DatasetDict(
+            {split: ds[split].select(range(n_rows)) for split in ds.keys()},
+        )
+    return split_dataset(
+        ds,
+        dataset_config["val_split"],
+        dataset_config["test_split"],
+    )
 
 
 def chunk_texts(
@@ -56,16 +71,16 @@ def chunk_texts(
 
 def preprocess_dataset(
     input_config: Dict[str, Any],
+    data_src: str,
+    n_rows: Optional[int] = None,
 ) -> Tuple[DatasetDict, PreTrainedTokenizer, DataCollatorForLanguageModeling]:
-    dataset = get_dataset(
-        input_config["dataset"]["hf"],
-        input_config["dataset"]["val_split"],
-        input_config["dataset"]["test_split"],
-    )
-    tokenizer = AutoTokenizer.from_pretrained(input_config["model"]["hf"])
 
+    dataset = get_dataset(input_config["dataset"], data_src, n_rows)
+    tokenizer = AutoTokenizer.from_pretrained(input_config["model"]["hf"])
     tokenized_ds = dataset.map(
-        lambda examples: tokenizer(examples["text"]),
+        lambda examples: tokenizer(
+            examples[input_config.get("dataset").get("text_column")],
+        ),
         batched=True,
         num_proc=4,
         remove_columns=dataset["train"].column_names,

@@ -7,7 +7,9 @@ import random
 import numpy as np
 import torch
 import wandb
+from accelerate.commands.config.update import description
 from evals import generate_eval_table
+from pefts import get_model
 from preprocess_data import preprocess_dataset
 from transformers import (
     AutoModelForMaskedLM,
@@ -43,18 +45,35 @@ parser.add_argument(
     default="config.json",
     help="Path to config file",
 )
+parser.add_argument(
+    "--data_src",
+    type=str,
+    default="local",
+    required=False,
+    help="local or hf",
+)
 parser.add_argument("--gpu_index_to_use", type=str, default=None, required=False)
+parser.add_argument(
+    "--train_techs",
+    type=str,
+    default=[],
+    required=False,
+    nargs="*",
+    help="to use lora, quantization",
+)
 parser.add_argument(
     "--nrows",
     type=int,
-    default=None,
+    default=100,
     help="Limit the dataset size with n rows",
 )
 
 # Parse arguments
 args = parser.parse_args()
 config_path = args.config_path
+data_src = args.data_src
 gpu_index_to_use = args.gpu_index_to_use
+train_techs = args.train_techs
 n_rows = args.nrows
 
 with open("config.json", "r") as file:
@@ -86,10 +105,12 @@ wandb.init(project="mlm-fine-tuning")
 
 if __name__ == "__main__":
     printd("*" * 10 + "Started DataPreprocessing" + "*" * 10, file=file)
-    lm_dataset, tokenizer, data_collator = preprocess_dataset(config.get("input"))
-    model = AutoModelForMaskedLM.from_pretrained(
-        config.get("input").get("model").get("hf"),
+    lm_dataset, tokenizer, data_collator = preprocess_dataset(
+        config.get("input"),
+        data_src,
+        n_rows,
     )
+    model = get_model(config, train_techs, file)
 
     training_args = TrainingArguments(
         output_dir=f"{config.get('output').get('model_backups_path')}timestamp_{formatted_datetime}/{config.get('input').get('model').get('hf')}/",
@@ -126,7 +147,6 @@ if __name__ == "__main__":
     wandb.config.update(custom_cfg)
 
     printd("*" * 10 + "Started Training" + "*" * 10, file=file)
-    printd(lm_dataset, file=file)
     trainer.train()
 
     model_save_loc = os.path.join(

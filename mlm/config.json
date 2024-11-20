@@ -1,7 +1,7 @@
 {
   "input": {
     "model": {
-      "hf": "distilbert/distilroberta-base"
+      "hf": "nasa-impact/nasa-smd-ibm-v0.1"
     },
     "dataset": {
       "hf": {
@@ -9,10 +9,15 @@
         "name": "20231101.en",
         "split": "train[:100]"
       },
+      "local": {
+        "path": "json",
+        "data_files": "../data/sde_index_all.zip"
+      },
       "val_split": 0.1,
       "test_split": 0.1,
       "chunk_size": 128,
-      "mlm_probability": 0.15
+      "mlm_probability": 0.15,
+      "text_column": "text"
     }
   },
   "TrainingArguments": {
@@ -23,7 +28,7 @@
     "save_steps": 100,
     "logging_dir": "./logs",
     "logging_steps": 100,
-    "num_train_epochs": 1,
+    "num_train_epochs": 2,
     "save_total_limit": 2,
     "save_strategy": "steps",
     "optim": "adamw_torch",
@@ -40,6 +45,19 @@
   },
   "additional_training_config": {
     "training_patience": 4
+  },
+  "peft": {
+    "r":64,
+    "lora_alpha":16,
+    "lora_dropout":0.1,
+    "task_type":"CAUSAL_LM",
+    "target_modules":["q_proj", "k_proj", "v_proj", "o_proj","gate_proj"]
+  },
+  "quant": {
+    "bnb_config": {
+      "load_in_4bit": true,
+      "bnb_4bit_quant_type": "nf4"
+    }
   },
   "output": {
     "dir": "./model_outputs/",
