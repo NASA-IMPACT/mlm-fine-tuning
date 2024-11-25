@@ -8,7 +8,7 @@ import numpy as np
 import torch
 import wandb
 from accelerate.commands.config.update import description
-from evals import generate_eval_table
+from evals import compute_metrics, generate_eval_table
 from pefts import get_model
 from preprocess_data import preprocess_dataset
 from transformers import (
@@ -64,7 +64,7 @@ parser.add_argument(
 parser.add_argument(
     "--nrows",
     type=int,
-    default=100,
+    default=None,
     help="Limit the dataset size with n rows",
 )
 
@@ -115,6 +115,7 @@ if __name__ == "__main__":
     training_args = TrainingArguments(
         output_dir=f"{config.get('output').get('model_backups_path')}timestamp_{formatted_datetime}/{config.get('input').get('model').get('hf')}/",
         **config.get("TrainingArguments"),
+        label_names=["labels"],  # https://github.com/huggingface/peft/issues/1120
     )
     early_stopping = EarlyStoppingCallback(
         early_stopping_patience=config.get("additional_training_config").get(
@@ -132,6 +133,7 @@ if __name__ == "__main__":
         tokenizer=tokenizer,
     )
     trainer = Trainer(**trainer_config)
+    trainer.can_return_loss = True
 
     wandb.watch(model, log="all")
     # update the config to wandb
