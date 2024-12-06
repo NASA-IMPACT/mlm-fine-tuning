@@ -17,7 +17,7 @@ from transformers import (
     Trainer,
     TrainingArguments,
 )
-from utils import printd, generate_inference
+from utils import generate_inference, printd
 
 
 def set_seed(seed=42) -> None:
@@ -166,10 +166,13 @@ if __name__ == "__main__":
     wandb.log({f"eval_report": wandb.Table(dataframe=eval_report_df)})
 
     printd("*" * 10 + "Started Inference" + "*" * 10, file=file)
-    inference_df = generate_inference(lm_dataset["test"], tokenizer, 
-                                      model_save_loc, top_k=config.get("output").get("inference").get("top_k"), 
-                                      n_predictions=config.get("output").get("inference").get("n_predictions")
-                                      )
+    inference_df = generate_inference(
+        lm_dataset["test"],
+        tokenizer,
+        model_save_loc,
+        top_k=config.get("output").get("inference").get("top_k"),
+        n_predictions=config.get("output").get("inference").get("n_predictions"),
+    )
     wandb.log({f"inference": wandb.Table(dataframe=inference_df)})
     wandb.finish()
 
