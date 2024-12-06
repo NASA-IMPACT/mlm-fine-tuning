@@ -17,7 +17,7 @@ from transformers import (
     Trainer,
     TrainingArguments,
 )
-from utils import printd
+from utils import printd, generate_inference
 
 
 def set_seed(seed=42) -> None:
@@ -38,6 +38,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+base_path = os.path.dirname(__file__)  # Path of the current script
+print(base_path)
 parser = argparse.ArgumentParser()
 parser.add_argument(
     "--config_path",
@@ -159,9 +161,16 @@ if __name__ == "__main__":
     model.save_pretrained(model_save_loc)
     tokenizer.save_pretrained(model_save_loc)
 
+    printd("*" * 10 + "Started Evaluation" + "*" * 10, file=file)
     eval_report_df = generate_eval_table(trainer, lm_dataset)
     wandb.log({f"eval_report": wandb.Table(dataframe=eval_report_df)})
-    #
+
+    printd("*" * 10 + "Started Inference" + "*" * 10, file=file)
+    inference_df = generate_inference(lm_dataset["test"], tokenizer, 
+                                      model_save_loc, top_k=config.get("output").get("inference").get("top_k"), 
+                                      n_predictions=config.get("output").get("inference").get("n_predictions")
+                                      )
+    wandb.log({f"inference": wandb.Table(dataframe=inference_df)})
     wandb.finish()
 
 file.close()

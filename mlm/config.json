@@ -9,8 +9,8 @@
         "name": "20231101.en"
       },
       "local": {
-        "path": "json",
-        "data_files": "../data/sde_index_all.zip"
+        "path": "parquet",
+        "data_files": "../data/parsed_sde_init_check_with_title.parquet"
       },
       "val_split": 0.1,
       "test_split": 0.1,
@@ -23,11 +23,11 @@
     "per_device_train_batch_size": 16,
     "per_device_eval_batch_size": 16,
     "eval_strategy": "steps",
-    "eval_steps": 100,
-    "save_steps": 100,
+    "eval_steps": 1000,
+    "save_steps": 1000,
     "logging_dir": "./logs",
-    "logging_steps": 100,
-    "num_train_epochs": 10,
+    "logging_steps": 1000,
+    "num_train_epochs": 7,
     "save_total_limit": 2,
     "save_strategy": "steps",
     "optim": "adamw_torch",
@@ -43,7 +43,7 @@
     "remove_unused_columns": true
   },
   "additional_training_config": {
-    "training_patience": 4
+    "training_patience": 3
   },
   "peft": {
     "r":64,
@@ -63,6 +63,10 @@
     "model_backups_path": "tmp/models/",
     "final_model_path": "model/",
     "eval": "",
-    "log": "model_log.txt"
+    "log": "model_log.txt",
+    "inference": {
+        "top_k": 3,
+        "n_predictions": 2000
+    }
   }
 }
