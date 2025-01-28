@@ -2,7 +2,7 @@ from typing import Any, Dict, List, Optional, TextIO
 
 import torch
 from peft import LoraConfig, PeftModel, get_peft_model, prepare_model_for_kbit_training
-from transformers import AutoModelForMaskedLM, BitsAndBytesConfig
+from transformers import AutoModelForMaskedLM
 from utils import printd
 
 
@@ -24,6 +24,8 @@ def get_model(
 
     # Check if quantization is required
     if "quant" in {tech.lower() for tech in train_techs}:
+        from transformers import BitsAndBytesConfig
+
         bnb_config = BitsAndBytesConfig(
             **config.get("quant", {}).get("bnb_config", {}),
             bnb_4bit_compute_dtype=torch.bfloat16,

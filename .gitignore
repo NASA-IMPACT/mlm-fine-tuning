@@ -13,3 +13,9 @@ notebooks/learning/test_model/*
 notebooks/learning/test_model_final/*
 mlm/model_outputs/*
 data/*
+
+mlm/artifacts/*
+mlm/data/*
+mlm/tmp/*
+mlm/wandb/*
+wandb/*

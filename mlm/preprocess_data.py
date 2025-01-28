@@ -74,9 +74,9 @@ def preprocess_dataset(
     data_src: str,
     n_rows: Optional[int] = None,
 ) -> Tuple[DatasetDict, PreTrainedTokenizer, DataCollatorForLanguageModeling]:
-
     dataset = get_dataset(input_config["dataset"], data_src, n_rows)
     tokenizer = AutoTokenizer.from_pretrained(input_config["model"]["hf"])
+
     tokenized_ds = dataset.map(
         lambda examples: tokenizer(
             examples[input_config.get("dataset").get("text_column")],

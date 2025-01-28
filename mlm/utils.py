@@ -1,8 +1,9 @@
 import random
-from typing import Any, Dict, List, Optional, TextIO
+from typing import Any, Dict, List, Optional, TextIO, Union
 
 import pandas as pd
-from transformers import PreTrainedTokenizer, pipeline
+import torch
+from transformers import PreTrainedModel, PreTrainedTokenizer, pipeline
 
 
 def printd(*args: Any, **kwargs: Any) -> None:
@@ -53,6 +54,12 @@ def mask_random_token(
         input_ids[mask_index] = tokenizer.mask_token_id
 
         tokenized_example["masked_token_str"] = tokenizer.decode([original_token])
+    else:
+        tokenized_example["input_ids"].insert(
+            1,
+            tokenizer.mask_token_id,
+        )  # Add <mask> after the [CLS] token
+        tokenized_example["masked_token_str"] = tokenizer.mask_token
 
     tokenized_example["input_ids"] = input_ids
     return tokenized_example
@@ -61,6 +68,7 @@ def mask_random_token(
 def arrange_inference_results(
     predictions: List[List[Dict]],
     targets: List[str],
+    inputs: List[str],
 ) -> pd.DataFrame:
     """
     Arranges inference results and targets into a DataFrame.
@@ -73,8 +81,7 @@ def arrange_inference_results(
         DataFrame with sequences, targets, and top predictions.
     """
     data = []
-    for pred, target_str in zip(predictions, targets):
-        sequence = pred[0]["sequence"]
+    for pred, target_str, input in zip(predictions, targets, inputs):
         top_predictions = [
             {
                 "score": round(p["score"], 4),
@@ -84,7 +91,7 @@ def arrange_inference_results(
             for p in pred
         ]
 
-        row = {"sequence": sequence, "target": target_str}
+        row = {"input": input, "target": target_str}
         for i, top_pred in enumerate(top_predictions):
             row[f"top{i+1}"] = top_pred
 
@@ -96,9 +103,10 @@ def arrange_inference_results(
 def generate_inference(
     datasplit,
     tokenizer: PreTrainedTokenizer,
-    model_save_loc: str,
+    model_save_loc: Union[str, PreTrainedModel],
     top_k: int = 3,
     n_predictions: Optional[int] = None,
+    max_length: Optional[int] = 512,
 ) -> pd.DataFrame:
     """
     Generates inference results for a masked dataset using a trained model.
@@ -120,10 +128,27 @@ def generate_inference(
         lambda example: mask_random_token(example, tokenizer),
     )
     decoded_texts = [
-        tokenizer.decode(example["input_ids"]) for example in masked_dataset
+        tokenizer.decode(example["input_ids"], clean_up_tokenization_spaces=True)
+        for example in masked_dataset
     ]
 
-    mask_filler = pipeline("fill-mask", model=model_save_loc, tokenizer=model_save_loc)
-    results = mask_filler(decoded_texts, top_k=top_k)
+    mask_filler = pipeline("fill-mask", model=model_save_loc, tokenizer=tokenizer)
 
-    return arrange_inference_results(results, masked_dataset["masked_token_str"])
+    # filter decoded_texts: remove those without <mask> token
+    decoded_texts = [text for text in decoded_texts if "<mask>" in text]
+    masked_token_strs = [
+        example.get("masked_token_str")
+        for example, text in zip(masked_dataset, decoded_texts)
+        if "<mask>" in text
+    ]
+
+    results = mask_filler(
+        decoded_texts,
+        top_k=top_k,
+        tokenizer_kwargs={
+            "truncation": True,
+            "max_length": max_length,
+            "add_special_tokens": False,
+        },
+    )
+    return arrange_inference_results(results, masked_token_strs, decoded_texts)

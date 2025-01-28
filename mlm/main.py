@@ -6,8 +6,8 @@ import random
 
 import numpy as np
 import torch
-import wandb
-from accelerate.commands.config.update import description
+
+# from accelerate.commands.config.update import description
 from evals import compute_metrics, generate_eval_table
 from pefts import get_model
 from preprocess_data import preprocess_dataset
@@ -18,6 +18,8 @@ from transformers import (
     TrainingArguments,
 )
 from utils import generate_inference, printd
+
+import wandb
 
 
 def set_seed(seed=42) -> None:
@@ -61,13 +63,27 @@ parser.add_argument(
     default=[],
     required=False,
     nargs="*",
-    help="to use lora, quantization",
+    help="to use lora, quant",
 )
 parser.add_argument(
     "--nrows",
     type=int,
     default=None,
     help="Limit the dataset size with n rows",
+)
+parser.add_argument(
+    "--resume_model_path",
+    type=str,
+    default=None,
+    required=False,
+    help="path to the model to resume training",
+)
+parser.add_argument(
+    "--wandb_mode",
+    type=str,
+    default="online",
+    required=False,
+    help="online, offline, disabled",
 )
 
 # Parse arguments
@@ -76,11 +92,13 @@ config_path = args.config_path
 data_src = args.data_src
 gpu_index_to_use = args.gpu_index_to_use
 train_techs = args.train_techs
+resume_model_path = args.resume_model_path
 n_rows = args.nrows
+wandb_mode = args.wandb_mode
 
-with open("config.json", "r") as file:
+with open(config_path, "r") as file:
     config = json.load(file)
-config["termina_args"] = vars(args)
+config["terminal_args"] = vars(args)
 
 current_datetime = datetime.datetime.now()
 formatted_datetime = current_datetime.strftime("%Y%m%d_%H-%M-%S")
@@ -91,6 +109,7 @@ model_output_dir = os.path.join(
     str(formatted_datetime),
 )
 os.makedirs(model_output_dir, exist_ok=True)
+json.dump(config, open(os.path.join(model_output_dir, "config.json"), "w"), indent=4)
 file = open(os.path.join(model_output_dir, config.get("output").get("log")), "w")
 
 if gpu_index_to_use is not None:
@@ -103,16 +122,28 @@ printd("*" * 30, file=file)
 
 assert os.getenv("WANDB_LOG_MODEL") == "end"
 wandb.login(key=os.getenv("WANDB_API_KEY"))
-wandb.init(project="mlm-fine-tuning")
+wandb.init(project="mlm-fine-tuning", mode=wandb_mode)
 
 if __name__ == "__main__":
+    if resume_model_path:
+        printd(
+            "*" * 10
+            + f"Setup for Resuming Training from {resume_model_path}"
+            + "*" * 10,
+            file=file,
+        )
+        config = json.load(open(os.path.join(resume_model_path, "config.json"), "r"))
+        model = AutoModelForMaskedLM.from_pretrained(
+            os.path.join(resume_model_path, "model"),
+        )
+    else:
+        model = get_model(config, train_techs, file)
     printd("*" * 10 + "Started DataPreprocessing" + "*" * 10, file=file)
     lm_dataset, tokenizer, data_collator = preprocess_dataset(
         config.get("input"),
         data_src,
         n_rows,
     )
-    model = get_model(config, train_techs, file)
 
     training_args = TrainingArguments(
         output_dir=f"{config.get('output').get('model_backups_path')}timestamp_{formatted_datetime}/{config.get('input').get('model').get('hf')}/",
@@ -158,7 +189,7 @@ if __name__ == "__main__":
         config.get("output").get("final_model_path"),
     )
     os.makedirs(model_save_loc, exist_ok=True)
-    model.save_pretrained(model_save_loc)
+    trainer.model.save_pretrained(model_save_loc)
     tokenizer.save_pretrained(model_save_loc)
 
     printd("*" * 10 + "Started Evaluation" + "*" * 10, file=file)
