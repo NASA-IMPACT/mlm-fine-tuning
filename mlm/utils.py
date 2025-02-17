@@ -81,15 +81,20 @@ def arrange_inference_results(
         DataFrame with sequences, targets, and top predictions.
     """
     data = []
+    assert len(predictions) == len(targets) == len(inputs)
     for pred, target_str, input in zip(predictions, targets, inputs):
-        top_predictions = [
-            {
-                "score": round(p["score"], 4),
-                "token_str": p["token_str"],
-                "token": p["token"],
-            }
-            for p in pred
-        ]
+        top_predictions = []
+        for p in pred:
+            if type(p) == dict:
+                top_predictions.append(
+                    {
+                        "score": round(float(p["score"]), 4),
+                        "token_str": p["token_str"],
+                        "token": p["token"],
+                    },
+                )
+            else:
+                print(p)
 
         row = {"input": input, "target": target_str}
         for i, top_pred in enumerate(top_predictions):
@@ -135,11 +140,11 @@ def generate_inference(
     mask_filler = pipeline("fill-mask", model=model_save_loc, tokenizer=tokenizer)
 
     # filter decoded_texts: remove those without <mask> token
-    decoded_texts = [text for text in decoded_texts if "<mask>" in text]
+    decoded_texts = [text for text in decoded_texts if tokenizer.mask_token in text]
     masked_token_strs = [
         example.get("masked_token_str")
         for example, text in zip(masked_dataset, decoded_texts)
-        if "<mask>" in text
+        if tokenizer.mask_token in text
     ]
 
     results = mask_filler(

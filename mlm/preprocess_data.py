@@ -80,6 +80,7 @@ def preprocess_dataset(
     tokenized_ds = dataset.map(
         lambda examples: tokenizer(
             examples[input_config.get("dataset").get("text_column")],
+            truncation=True,
         ),
         batched=True,
         num_proc=4,
@@ -91,7 +92,9 @@ def preprocess_dataset(
         num_proc=4,
         fn_kwargs={"chunk_size": input_config["dataset"]["chunk_size"]},
     )
-    tokenizer.pad_token = tokenizer.eos_token
+    # tokenizer.pad_token = tokenizer.eos_token
+    if tokenizer.pad_token is None:
+        tokenizer.add_special_tokens({"pad_token": "[PAD]"})
     data_collator = DataCollatorForLanguageModeling(
         tokenizer=tokenizer,
         mlm_probability=input_config["dataset"]["mlm_probability"],

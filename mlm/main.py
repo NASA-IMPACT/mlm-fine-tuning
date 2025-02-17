@@ -46,7 +46,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument(
     "--config_path",
     type=str,
-    default="config.json",
+    default="config_new_data.json",
     help="Path to config file",
 )
 parser.add_argument(
@@ -72,11 +72,18 @@ parser.add_argument(
     help="Limit the dataset size with n rows",
 )
 parser.add_argument(
-    "--resume_model_path",
+    "--resume_checkpoint_path",
     type=str,
     default=None,
     required=False,
     help="path to the model to resume training",
+)
+parser.add_argument(
+    "--resume_run_id",
+    type=str,
+    default=None,
+    required=False,
+    help="wandb run id which is to be resumed",
 )
 parser.add_argument(
     "--wandb_mode",
@@ -92,7 +99,8 @@ config_path = args.config_path
 data_src = args.data_src
 gpu_index_to_use = args.gpu_index_to_use
 train_techs = args.train_techs
-resume_model_path = args.resume_model_path
+resume_checkpoint_path = args.resume_checkpoint_path
+resume_run_id = args.resume_run_id
 n_rows = args.nrows
 wandb_mode = args.wandb_mode
 
@@ -122,22 +130,22 @@ printd("*" * 30, file=file)
 
 assert os.getenv("WANDB_LOG_MODEL") == "end"
 wandb.login(key=os.getenv("WANDB_API_KEY"))
-wandb.init(project="mlm-fine-tuning", mode=wandb_mode)
+if resume_run_id is not None:
+    wandb.init(
+        project="mlm-fine-tuning",
+        mode=wandb_mode,
+        id=resume_run_id,
+        resume="must",
+    )
+else:
+    wandb.init(project="mlm-fine-tuning", mode=wandb_mode)
 
 if __name__ == "__main__":
-    if resume_model_path:
-        printd(
-            "*" * 10
-            + f"Setup for Resuming Training from {resume_model_path}"
-            + "*" * 10,
-            file=file,
-        )
-        config = json.load(open(os.path.join(resume_model_path, "config.json"), "r"))
-        model = AutoModelForMaskedLM.from_pretrained(
-            os.path.join(resume_model_path, "model"),
-        )
-    else:
-        model = get_model(config, train_techs, file)
+    model = get_model(config, train_techs, file)
+
+    # moving model to device
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
     printd("*" * 10 + "Started DataPreprocessing" + "*" * 10, file=file)
     lm_dataset, tokenizer, data_collator = preprocess_dataset(
         config.get("input"),
@@ -145,8 +153,12 @@ if __name__ == "__main__":
         n_rows,
     )
 
+    if resume_checkpoint_path is not None:
+        output_dir = "/".join(resume_checkpoint_path.split("/")[:-1])
+    else:
+        output_dir = f"{config.get('output').get('model_backups_path')}timestamp_{formatted_datetime}/{config.get('input').get('model').get('hf')}/"
     training_args = TrainingArguments(
-        output_dir=f"{config.get('output').get('model_backups_path')}timestamp_{formatted_datetime}/{config.get('input').get('model').get('hf')}/",
+        output_dir=output_dir,
         **config.get("TrainingArguments"),
         label_names=["labels"],  # https://github.com/huggingface/peft/issues/1120
     )
@@ -179,10 +191,13 @@ if __name__ == "__main__":
     custom_cfg["data_size"] = (
         custom_cfg["train_size"] + custom_cfg["val_size"] + custom_cfg["test_size"]
     )
-    wandb.config.update(custom_cfg)
+    wandb.config.update(custom_cfg, allow_val_change=True)
 
     printd("*" * 10 + "Started Training" + "*" * 10, file=file)
-    trainer.train()
+    if resume_checkpoint_path is not None:
+        trainer.train(resume_from_checkpoint=resume_checkpoint_path)
+    else:
+        trainer.train()
 
     model_save_loc = os.path.join(
         model_output_dir,
@@ -203,6 +218,7 @@ if __name__ == "__main__":
         model_save_loc,
         top_k=config.get("output").get("inference").get("top_k"),
         n_predictions=config.get("output").get("inference").get("n_predictions"),
+        max_length=config.get("input").get("dataset").get("chunk_size"),
     )
     wandb.log({f"inference": wandb.Table(dataframe=inference_df)})
     wandb.finish()

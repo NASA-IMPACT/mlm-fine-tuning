@@ -42,6 +42,9 @@ def get_model(
         # Load the model without quantization
         model = AutoModelForMaskedLM.from_pretrained(
             config.get("input", {}).get("model", {}).get("hf", ""),
+            torch_dtype="auto",  # Uses BF16/FP16 if available
+            attn_implementation="flash_attention_2",  # Enable FlashAttention
+            reference_compile=False,
         )
 
     # Check if LoRA (Low-Rank Adaptation) is required
