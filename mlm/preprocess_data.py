@@ -1,4 +1,6 @@
 import hashlib
+import os
+import re
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import diskcache
@@ -15,7 +17,7 @@ from transformers import (
 )
 
 # Create a cache object
-cache = diskcache.Cache("./keyword_cache/")
+cache = diskcache.Cache("./_datacache/")
 
 
 def disk_cache(func):
@@ -79,16 +81,18 @@ class KeywordMasking:
         lm_dataset = tokenized.map(
             self.gen_prob_matrix,
             batched=True,
-            num_proc=4,
+            num_proc=8,
             fn_kwargs={},
+            desc="Gen Prob Matrix",
         )
 
         # use this probability matrix to mask the tokens
         lm_dataset = lm_dataset.map(
             self.gen_static_mask,
             batched=True,
-            num_proc=4,
+            num_proc=8,
             fn_kwargs={},
+            desc="Static Masking",
         )
         return lm_dataset
 
@@ -152,18 +156,34 @@ class KeywordMasking:
             n_keywords_to_select = int(
                 (self.keyword_selection_percentile * total_n_keywords) // 100,
             )
+
             keywords = [
-                k.upper() for k, _ in self.extractor.get_n_best(n=n_keywords_to_select)
+                k.upper().strip()
+                for k, _ in self.extractor.get_n_best(n=n_keywords_to_select)
             ]
-            # is_in_keyword = torch.tensor([text[m[0]: m[1]].upper() in keywords  for m in of_map], dtype=torch.float) #uses exact match
+
+            # use regex way
+            keyword_pattern = re.compile(
+                r"\b(" + "|".join(re.escape(k) for k in keywords) + r")\b",
+                re.IGNORECASE,
+            )
             is_in_keyword = torch.tensor(
                 [
-                    self.find_max_iou_edit_distance(text[m[0] : m[1]].upper(), keywords)
-                    > self.keyword_iou_threshold
-                    for m in of_map
+                    1 if re.search(keyword_pattern, text[start:end].strip()) else 0
+                    for start, end in of_map
                 ],
                 dtype=torch.float,
             )
+
+            # is_in_keyword = torch.tensor([text[m[0]: m[1]].upper().strip() in keywords  for m in of_map], dtype=torch.float) #uses exact match
+            # is_in_keyword = torch.tensor(
+            #     [
+            #         self.find_max_iou_edit_distance(text[m[0] : m[1]].upper(), keywords)
+            #         > self.keyword_iou_threshold
+            #         for m in of_map
+            #     ],
+            #     dtype=torch.float,
+            # )
             keyword_mask_candidates[_i, : len(is_in_keyword)] = is_in_keyword
         return keyword_mask_candidates
 
@@ -333,7 +353,7 @@ def preprocess_dataset_with_static_masking(
     n_rows: Optional[int] = None,
 ) -> Tuple[DatasetDict, PreTrainedTokenizer, DataCollatorForLanguageModeling]:
 
-    dataset = get_dataset(input_config["dataset"], data_src, n_rows, False)
+    dataset = get_dataset(input_config["dataset"], data_src, n_rows, True)
     tokenizer = AutoTokenizer.from_pretrained(input_config["model"]["hf"])
     if tokenizer.pad_token is None:
         tokenizer.add_special_tokens({"pad_token": "[PAD]"})
