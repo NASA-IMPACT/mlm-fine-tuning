@@ -372,7 +372,11 @@ def preprocess_dataset_with_static_masking(
         remove_columns=columns_to_remove,
     )
 
-    masker = KeywordMasking(tokenizer, input_config.get("dataset").get("text_column"))
+    masker = KeywordMasking(
+        tokenizer,
+        input_config.get("dataset").get("text_column"),
+        **input_config.get("dataset").get("keyword_masking"),
+    )
     tokenized_ds = masker.mask_with_keywords(tokenized_ds)
 
     data_collator = DataCollatorWithPadding(
