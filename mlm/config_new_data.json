@@ -12,12 +12,18 @@
         "path": "parquet",
         "data_files": "/rhome/sawale/indus_traning/mlm-fine-tuning/mlm/data/parsed_sde_init_check_with_title_filtered_word_count.parquet"
       },
+      "keyword_masking": {
+        "key_extrator": "YAKE",
+        "mlm_probablity": 0.3,
+        "keyword_masking_probablity": 0.85,
+        "keyword_selection_percentile": 50.0,
+        "keyword_iou_threshold": 0.80
+      },
       "val_split": 0.1,
       "test_split": 0.1,
       "chunk_size": 1024,
       "mlm_probability": 0.15,
-      "text_column": "text",
-      "emb_model": "all-MiniLM-L6-v2"
+      "text_column": "text"
     }
   },
   "TrainingArguments": {
