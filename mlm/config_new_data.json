@@ -10,14 +10,18 @@
       },
       "local": {
         "path": "parquet",
-        "data_files": "/rhome/sawale/indus_traning/mlm-fine-tuning/mlm/data/parsed_sde_init_check_with_title_filtered_word_count.parquet"
+        "data_files": "/rhome/sawale/indus_traning/mlm-fine-tuning/mlm/data/parsed_sde_init_check_with_title_filtered_word_count_yake.parquet"
       },
       "keyword_masking": {
         "key_extrator": "YAKE",
-        "mlm_probablity": 0.3,
+        "mlm_probablity": 0.30,
         "keyword_masking_probablity": 0.85,
         "keyword_selection_percentile": 50.0,
         "keyword_iou_threshold": 0.80
+      },
+      "kw_masking_type": {
+        "static": true,
+        "dynamic": false
       },
       "val_split": 0.1,
       "test_split": 0.1,
@@ -27,8 +31,8 @@
     }
   },
   "TrainingArguments": {
-    "per_device_train_batch_size": 4,
-    "per_device_eval_batch_size": 4,
+    "per_device_train_batch_size": 8,
+    "per_device_eval_batch_size": 8,
     "eval_strategy": "steps",
     "eval_steps": 2000,
     "save_steps": 2000,

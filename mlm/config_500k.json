@@ -10,7 +10,7 @@
       },
       "local": {
         "path": "parquet",
-        "data_files": "/rhome/sawale/indus_traning/mlm-fine-tuning/mlm/data/parsed_sde_init_check_with_title_filtered_word_count_yake.parquet"
+        "data_files": "/rhome/sawale/indus_traning/mlm-fine-tuning/mlm/data/cleaned_prod_dump_filtered_word_count_yake.parquet"
       },
       "keyword_masking": {
         "key_extrator": "YAKE",
@@ -34,10 +34,10 @@
     "per_device_train_batch_size": 8,
     "per_device_eval_batch_size": 8,
     "eval_strategy": "steps",
-    "eval_steps": 2000,
-    "save_steps": 2000,
+    "eval_steps": 8000,
+    "save_steps": 8000,
     "logging_dir": "./logs",
-    "logging_steps": 2000,
+    "logging_steps": 8000,
     "num_train_epochs": 7,
     "save_total_limit": 3,
     "save_strategy": "steps",

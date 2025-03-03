@@ -55,13 +55,60 @@ def mask_random_token(
 
         tokenized_example["masked_token_str"] = tokenizer.decode([original_token])
     else:
-        tokenized_example["input_ids"].insert(
+        input_ids.insert(
             1,
             tokenizer.mask_token_id,
         )  # Add <mask> after the [CLS] token
         tokenized_example["masked_token_str"] = tokenizer.mask_token
 
     tokenized_example["input_ids"] = input_ids
+    return tokenized_example
+
+
+def keyword_token_masking(
+    tokenized_example: Dict[str, List[int]],
+    tokenizer: PreTrainedTokenizer,
+) -> Dict[str, List[int]]:
+    """
+    Masks a token in the input_ids_clone which has the unmasked input ids of a tokenized example.
+
+    Args:
+        tokenized_example: Dictionary with tokenized data containing "input_ids".
+        tokenizer: Tokenizer to handle token encoding and decoding.
+
+    Returns:
+        The updated example with one token masked and the original masked token string.
+    """
+    input_ids = tokenized_example.get(
+        "input_ids_clone",
+        tokenized_example.get("input_ids"),
+    )
+    probability_matrix = tokenized_example["probability_matrix"]
+    # the maskable position are thosw which have > 0 value in probablity matrix
+    maskable_positions = [
+        i for i in range(len(probability_matrix)) if probability_matrix[i] > 0.0
+    ]
+
+    if len(maskable_positions) > 0:
+        mask_index = random.choice(maskable_positions)
+        if isinstance(input_ids, torch.Tensor):
+            original_token = input_ids[mask_index].item()  # converting tensor to int
+        else:
+            original_token = input_ids[mask_index]
+        input_ids[mask_index] = tokenizer.mask_token_id
+        tokenized_example["masked_token_str"] = str(tokenizer.decode([original_token]))
+
+    else:
+        if isinstance(input_ids, torch.Tensor):
+            input_ids = input_ids.tolist()  # Convert tensor to list before inserting
+        input_ids.insert(
+            1,
+            tokenizer.mask_token_id,
+        )  # Add <mask> after the [CLS] token
+        tokenized_example["masked_token_str"] = tokenizer.mask_token
+
+    tokenized_example["input_ids"] = input_ids
+
     return tokenized_example
 
 
@@ -112,6 +159,7 @@ def generate_inference(
     top_k: int = 3,
     n_predictions: Optional[int] = None,
     max_length: Optional[int] = 512,
+    use_keyword_based_masking: bool = False,
 ) -> pd.DataFrame:
     """
     Generates inference results for a masked dataset using a trained model.
@@ -129,15 +177,25 @@ def generate_inference(
     if n_predictions is not None:
         datasplit = datasplit.select(range(min(datasplit.num_rows, n_predictions)))
 
-    masked_dataset = datasplit.map(
-        lambda example: mask_random_token(example, tokenizer),
-    )
+    if use_keyword_based_masking:
+        masked_dataset = datasplit.map(
+            lambda example: keyword_token_masking(example, tokenizer),
+        )
+    else:
+        masked_dataset = datasplit.map(
+            lambda example: mask_random_token(example, tokenizer),
+        )
     decoded_texts = [
         tokenizer.decode(example["input_ids"], clean_up_tokenization_spaces=True)
         for example in masked_dataset
     ]
 
-    mask_filler = pipeline("fill-mask", model=model_save_loc, tokenizer=tokenizer)
+    mask_filler = pipeline(
+        "fill-mask",
+        model=model_save_loc,
+        tokenizer=tokenizer,
+        device_map="auto",
+    )
 
     # filter decoded_texts: remove those without <mask> token
     decoded_texts = [text for text in decoded_texts if tokenizer.mask_token in text]

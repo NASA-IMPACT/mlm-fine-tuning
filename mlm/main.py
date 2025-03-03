@@ -10,7 +10,7 @@ import torch
 # from accelerate.commands.config.update import description
 from evals import compute_metrics, generate_eval_table
 from pefts import get_model
-from preprocess_data import preprocess_dataset
+from preprocess_data import preprocess_dataset, preprocess_dataset_with_kw_masking
 from transformers import (
     AutoModelForMaskedLM,
     EarlyStoppingCallback,
@@ -143,15 +143,24 @@ else:
 if __name__ == "__main__":
     model = get_model(config, train_techs, file)
 
-    # moving model to device
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model.to(device)
     printd("*" * 10 + "Started DataPreprocessing" + "*" * 10, file=file)
-    lm_dataset, tokenizer, data_collator = preprocess_dataset(
-        config.get("input"),
-        data_src,
-        n_rows,
-    )
+
+    if any(config.get("input").get("dataset").get("kw_masking_type").values()):
+        lm_dataset, tokenizer, data_collator = preprocess_dataset_with_kw_masking(
+            config.get("input"),
+            data_src,
+            n_rows,
+        )
+    else:
+        lm_dataset, tokenizer, data_collator = preprocess_dataset(
+            config.get("input"),
+            data_src,
+            n_rows,
+        )
+
+    sample = next(iter(lm_dataset["train"]))  # Get a sample batch
+    input_ids_device = sample["input_ids"].device
+    print(f"Dataset is on: {input_ids_device}")
 
     if resume_checkpoint_path is not None:
         output_dir = "/".join(resume_checkpoint_path.split("/")[:-1])
@@ -160,7 +169,7 @@ if __name__ == "__main__":
     training_args = TrainingArguments(
         output_dir=output_dir,
         **config.get("TrainingArguments"),
-        label_names=["labels"],  # https://github.com/huggingface/peft/issues/1120
+        label_names=["labels"],  # https://github.com/huggingface/peft/issues/1120,
     )
     early_stopping = EarlyStoppingCallback(
         early_stopping_patience=config.get("additional_training_config").get(
@@ -219,6 +228,9 @@ if __name__ == "__main__":
         top_k=config.get("output").get("inference").get("top_k"),
         n_predictions=config.get("output").get("inference").get("n_predictions"),
         max_length=config.get("input").get("dataset").get("chunk_size"),
+        use_keyword_based_masking=any(
+            config.get("input").get("dataset").get("kw_masking_type").values(),
+        ),
     )
     wandb.log({f"inference": wandb.Table(dataframe=inference_df)})
     wandb.finish()

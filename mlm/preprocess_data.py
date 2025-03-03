@@ -1,12 +1,16 @@
 import hashlib
+import json
 import os
 import re
+from collections.abc import Mapping
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import diskcache
+import numpy as np
 
 # from sentence_transformers import SentenceTransformer
 import torch
+from data_prep.generate_keyword import generate_keyword
 from datasets import Dataset, DatasetDict, load_dataset
 from nltk.metrics import edit_distance
 from transformers import (
@@ -15,9 +19,15 @@ from transformers import (
     DataCollatorWithPadding,
     PreTrainedTokenizer,
 )
+from transformers.data.data_collator import (
+    _torch_collate_batch,
+    pad_without_fast_tokenizer_warning,
+)
 
 # Create a cache object
 cache = diskcache.Cache("./_datacache/")
+# torch.set_num_interop_threads(1)
+torch.set_num_threads(1)
 
 
 def disk_cache(func):
@@ -75,7 +85,10 @@ class KeywordMasking:
         else:
             raise ValueError(f"Invalid keyphrase extractor: {self.key_extrator}")
 
-    def mask_with_keywords(self, tokenized: Dict[str, Dataset]) -> Dict[str, Dataset]:
+    def mask_with_static_keywords(
+        self,
+        tokenized: Dict[str, Dataset],
+    ) -> Dict[str, Dataset]:
         """Mask the keywords in the input text."""
         # get the final probability matrix
         lm_dataset = tokenized.map(
@@ -90,9 +103,24 @@ class KeywordMasking:
         lm_dataset = lm_dataset.map(
             self.gen_static_mask,
             batched=True,
-            num_proc=8,
+            num_proc=1,
             fn_kwargs={},
             desc="Static Masking",
+        )
+        return lm_dataset
+
+    def get_probablity_matrix(
+        self,
+        tokenized: Dict[str, Dataset],
+    ) -> Dict[str, Dataset]:
+        """Get the probability matrix for MLM."""
+        # get the final probability matrix
+        lm_dataset = tokenized.map(
+            self.gen_prob_matrix,
+            batched=True,
+            num_proc=16,
+            fn_kwargs={},
+            desc="Gen Prob Matrix",
         )
         return lm_dataset
 
@@ -107,6 +135,12 @@ class KeywordMasking:
         labels = input_ids.clone()
 
         masked_indices = torch.bernoulli(probability_matrix).bool()
+
+        # make sure that at least one token is masked
+        for idx in range(len(masked_indices)):
+            if not torch.any(masked_indices[idx]):
+                masked_indices[idx][1] = True
+
         labels[~masked_indices] = -100  # We only compute loss on masked tokens
 
         # 80% of the time, we replace masked input tokens with tokenizer.mask_token ([MASK])
@@ -149,6 +183,7 @@ class KeywordMasking:
             dtype=torch.float,
         )  # 2D Tensor
         for _i, (text, of_map) in enumerate(zip(texts, offset_mapping)):
+            text = text.upper().strip()
             self.extractor.load_document(input=text, language="en")
             self.extractor.candidate_selection(n=1)  # getting only 1-gram keywords
             self.extractor.candidate_weighting()
@@ -162,20 +197,10 @@ class KeywordMasking:
                 for k, _ in self.extractor.get_n_best(n=n_keywords_to_select)
             ]
 
-            # use regex way
-            keyword_pattern = re.compile(
-                r"\b(" + "|".join(re.escape(k) for k in keywords) + r")\b",
-                re.IGNORECASE,
-            )
             is_in_keyword = torch.tensor(
-                [
-                    1 if re.search(keyword_pattern, text[start:end].strip()) else 0
-                    for start, end in of_map
-                ],
+                [text[m[0] : m[1]] in keywords for m in of_map],
                 dtype=torch.float,
-            )
-
-            # is_in_keyword = torch.tensor([text[m[0]: m[1]].upper().strip() in keywords  for m in of_map], dtype=torch.float) #uses exact match
+            )  # uses exact match
             # is_in_keyword = torch.tensor(
             #     [
             #         self.find_max_iou_edit_distance(text[m[0] : m[1]].upper(), keywords)
@@ -183,8 +208,47 @@ class KeywordMasking:
             #         for m in of_map
             #     ],
             #     dtype=torch.float,
-            # )
+            # ) # uses IoU based edit distance
             keyword_mask_candidates[_i, : len(is_in_keyword)] = is_in_keyword
+        return keyword_mask_candidates
+
+    def get_mask_candidates_YAKE_from_processed_list(
+        self,
+        texts: list[str],
+        batch_keywords: list[str],
+        offset_mapping: list[Tuple[int, int]],
+    ) -> torch.Tensor:
+        """Get the candidate keywords for masking using YAKE. The YAKE keywords are already processed in this case."""
+        keyword_mask_candidates = torch.zeros(
+            (len(texts), len(offset_mapping[0])),
+            dtype=torch.float,
+        )  # 2D Tensor
+
+        for _i, (text, of_map, kws) in enumerate(
+            zip(texts, offset_mapping, batch_keywords),
+        ):
+            # first convert the str (json dump to list of tuples)
+            kws = json.loads(kws)
+            kws = sorted(kws, key=lambda x: x[1], reverse=False)
+            total_n_keywords = len(kws)
+            n_keywords_to_select = int(
+                (self.keyword_selection_percentile * total_n_keywords) // 100,
+            )
+            keywords = [k.upper().strip() for k, _ in kws][:n_keywords_to_select]
+            is_in_keyword = torch.tensor(
+                [text[m[0] : m[1]].upper().strip() in keywords for m in of_map],
+                dtype=torch.float,
+            )  # uses exact match
+            # is_in_keyword = torch.tensor(
+            #     [
+            #         self.find_max_iou_edit_distance(text[m[0] : m[1]].upper(), keywords)
+            #         > self.keyword_iou_threshold
+            #         for m in of_map
+            #     ],
+            #     dtype=torch.float,
+            # ) # uses IoU based edit distance
+            keyword_mask_candidates[_i, : len(is_in_keyword)] = is_in_keyword
+
         return keyword_mask_candidates
 
     def gen_prob_matrix(self, batch: Dict[str, Dataset]) -> Dict[str, torch.Tensor]:
@@ -193,9 +257,11 @@ class KeywordMasking:
         labels = input_ids.clone()  # Create labels
         offset_mapping = batch["offset_mapping"]
         texts = batch[self.input_text_column]
+        batch_keywords = batch[self.key_extrator.lower()]
 
-        keyword_mask_candidates = self.get_mask_candidates_YAKE_batch(
+        keyword_mask_candidates = self.get_mask_candidates_YAKE_from_processed_list(
             texts,
+            batch_keywords,
             offset_mapping,
         )
 
@@ -223,6 +289,114 @@ class KeywordMasking:
         probability_matrix.masked_fill_(special_tokens_mask, value=0.0)
 
         return {"probability_matrix": probability_matrix}
+
+
+class DataCollatorForKeywordMasking(DataCollatorForLanguageModeling):
+    def __init__(
+        self,
+        tokenizer: PreTrainedTokenizer,
+        return_tensors: str = "pt",
+    ):
+        self.tokenizer = tokenizer
+        super().__init__(
+            tokenizer=self.tokenizer,
+            mlm=True,
+            return_tensors=return_tensors,
+        )
+
+    # Overriding torch_call method
+    def torch_call(
+        self,
+        examples: List[Union[List[int], Any, Dict[str, Any]]],
+    ) -> Dict[str, Any]:
+        # Handle dict or lists with proper padding and conversion to tensor.
+        if isinstance(examples[0], Mapping):
+            batch = pad_without_fast_tokenizer_warning(
+                self.tokenizer,
+                examples,
+                return_tensors="pt",
+                pad_to_multiple_of=self.pad_to_multiple_of,
+            )
+        else:
+            batch = {
+                "input_ids": _torch_collate_batch(
+                    examples,
+                    self.tokenizer,
+                    pad_to_multiple_of=self.pad_to_multiple_of,
+                ),
+            }
+
+        # If special token mask has been preprocessed, pop it from the dict.
+        special_tokens_mask = batch.pop("special_tokens_mask", None)
+        if self.mlm:
+            batch["input_ids"], batch["labels"] = self.torch_mask_tokens(
+                batch["input_ids"],
+                batch["probability_matrix"],
+                special_tokens_mask=special_tokens_mask,
+            )
+        else:
+            labels = batch["input_ids"].clone()
+            if self.tokenizer.pad_token_id is not None:
+                labels[labels == self.tokenizer.pad_token_id] = -100
+            batch["labels"] = labels
+
+        return batch
+
+    # Overriding the mask_tokens method
+    def torch_mask_tokens(
+        self,
+        inputs: Any,
+        probability_matrix: Any,
+        special_tokens_mask: Optional[Any] = None,
+    ) -> Tuple[Any, Any]:
+        """
+        Prepare masked tokens inputs/labels for masked language modeling: keyword_masking_probablity of time use keywords for masking, rest of the time use random masking.
+        """
+        import torch
+
+        labels = inputs.clone()
+        # We sample a few tokens in each sequence for MLM training (with probability `self.mlm_probability`)
+        probability_matrix = probability_matrix.clone().detach().to(torch.float)
+        # probability_matrix = torch.full(labels.shape, self.mlm_probability)
+        if special_tokens_mask is None:
+            special_tokens_mask = [
+                self.tokenizer.get_special_tokens_mask(
+                    val,
+                    already_has_special_tokens=True,
+                )
+                for val in labels.tolist()
+            ]
+            special_tokens_mask = torch.tensor(special_tokens_mask, dtype=torch.bool)
+        else:
+            special_tokens_mask = special_tokens_mask.bool()
+
+        probability_matrix.masked_fill_(special_tokens_mask, value=0.0)
+        masked_indices = torch.bernoulli(probability_matrix).bool()
+        labels[~masked_indices] = -100  # We only compute loss on masked tokens
+
+        # 80% of the time, we replace masked input tokens with tokenizer.mask_token ([MASK])
+        indices_replaced = (
+            torch.bernoulli(torch.full(labels.shape, 0.8)).bool() & masked_indices
+        )
+        inputs[indices_replaced] = self.tokenizer.convert_tokens_to_ids(
+            self.tokenizer.mask_token,
+        )
+
+        # 10% of the time, we replace masked input tokens with random word
+        indices_random = (
+            torch.bernoulli(torch.full(labels.shape, 0.5)).bool()
+            & masked_indices
+            & ~indices_replaced
+        )
+        random_words = torch.randint(
+            len(self.tokenizer),
+            labels.shape,
+            dtype=torch.long,
+        )
+        inputs[indices_random] = random_words[indices_random]
+
+        # The rest of the time (10% of the time) we keep the masked input tokens unchanged
+        return inputs, labels
 
 
 def split_dataset(
@@ -275,8 +449,23 @@ def get_dataset(
     data_src: str,
     n_rows: int,
     split: Optional[bool] = True,
-):
+    need_keyword: Optional[bool] = False,
+) -> DatasetDict:
     ds = DatasetDict(load_dataset(**dataset_config.get(data_src)))
+    # check if the keyword column is present in the dataset
+    if need_keyword:
+        key_extractor_method = (
+            dataset_config.get("keyword_masking").get("key_extrator").lower()
+        )
+        if key_extractor_method not in ds["train"].column_names:
+            new_data_path = generate_keyword(
+                dataset_config.get(data_src).get("data_files"),
+                key_extractor_method,
+                dataset_config.get("text_column"),
+                n_rows,
+            )
+            ds = DatasetDict(load_dataset(**new_data_path))
+
     if n_rows:
         ds = DatasetDict(
             {split: ds[split].select(range(n_rows)) for split in ds.keys()},
@@ -347,13 +536,20 @@ def preprocess_dataset(
 
 
 @disk_cache
-def preprocess_dataset_with_static_masking(
+def preprocess_dataset_with_kw_masking(
     input_config: Dict[str, Any],
     data_src: str,
     n_rows: Optional[int] = None,
 ) -> Tuple[DatasetDict, PreTrainedTokenizer, DataCollatorForLanguageModeling]:
 
-    dataset = get_dataset(input_config["dataset"], data_src, n_rows, True)
+    kw_masking_type = input_config.get("dataset").get("kw_masking_type")
+    dataset = get_dataset(
+        input_config["dataset"],
+        data_src,
+        n_rows,
+        split=True,
+        need_keyword=True,
+    )
     tokenizer = AutoTokenizer.from_pretrained(input_config["model"]["hf"])
     if tokenizer.pad_token is None:
         tokenizer.add_special_tokens({"pad_token": "[PAD]"})
@@ -364,6 +560,7 @@ def preprocess_dataset_with_static_masking(
             max_length=input_config["dataset"]["chunk_size"],
             truncation=True,
             padding="max_length",  # Ensures uniform sequence length
+            # padding=True,  # Ensures uniform sequence length
             return_overflowing_tokens=True,
             return_length=True,
             return_offsets_mapping=True,
@@ -374,21 +571,38 @@ def preprocess_dataset_with_static_masking(
         text = [
             text[i] for i in overflow_to_sample_mapping
         ]  # Reorder text to match tokenized output
+        # Simialrly, reorder the keyword column
+        keyword_extractor_name = (
+            input_config.get("dataset")
+            .get("keyword_masking")
+            .get("key_extrator")
+            .lower()
+        )
+        keyword_column = examples[keyword_extractor_name]
+        keyword_column = [keyword_column[i] for i in overflow_to_sample_mapping]
 
         return {
             **tokenized_output,
             "text": text,
+            keyword_extractor_name: keyword_column,
         }
 
     columns_to_remove = [
         c
         for c in dataset["train"].column_names
-        if c != input_config.get("dataset").get("text_column")
+        if c
+        not in [
+            input_config.get("dataset").get("text_column"),
+            input_config.get("dataset")
+            .get("keyword_masking")
+            .get("key_extrator")
+            .lower(),
+        ]
     ]
     tokenized_ds = dataset.map(
         tokenize_function,
         batched=True,
-        num_proc=4,
+        num_proc=16,
         remove_columns=columns_to_remove,
     )
 
@@ -397,11 +611,22 @@ def preprocess_dataset_with_static_masking(
         input_config.get("dataset").get("text_column"),
         **input_config.get("dataset").get("keyword_masking"),
     )
-    tokenized_ds = masker.mask_with_keywords(tokenized_ds)
+    if kw_masking_type.get("static"):
+        tokenized_ds = masker.mask_with_static_keywords(tokenized_ds)
 
-    data_collator = DataCollatorWithPadding(
-        tokenizer=tokenizer,
-        return_tensors="pt",
-    )
+        data_collator = DataCollatorWithPadding(
+            tokenizer=tokenizer,
+            return_tensors="pt",
+        )
+    elif kw_masking_type.get("dynamic"):
+        tokenized_ds = masker.get_probablity_matrix(tokenized_ds)
+        tokenized_ds.set_format(
+            type="torch",
+            columns=["input_ids", "attention_mask", "probability_matrix"],
+        )
+        data_collator = DataCollatorForKeywordMasking(
+            tokenizer,
+            return_tensors="pt",
+        )
 
     return tokenized_ds, tokenizer, data_collator
