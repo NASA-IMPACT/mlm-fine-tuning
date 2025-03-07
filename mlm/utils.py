@@ -1,9 +1,74 @@
+import copy
 import random
 from typing import Any, Dict, List, Optional, TextIO, Union
 
 import pandas as pd
 import torch
 from transformers import PreTrainedModel, PreTrainedTokenizer, pipeline
+
+def extend_position_embeddings_simple(model, tokenizer, new_max_position=1024):
+    # Deep copy to avoid modifying originals
+    tokenizer = copy.deepcopy(tokenizer)
+    model = copy.deepcopy(model)
+    
+    # Update tokenizer settings
+    tokenizer.model_max_length = new_max_position
+    
+    # Get the current configuration
+    config = model.config
+    original_max_position = config.max_position_embeddings
+    
+    print(f"Extending position embeddings from {original_max_position} to {new_max_position}")
+    
+    # Get the original position embeddings
+    old_embeddings = model.roberta.embeddings.position_embeddings.weight.data
+    
+    # Create new position embeddings
+    new_embeddings = torch.zeros(
+        new_max_position, old_embeddings.size(1),
+        dtype=old_embeddings.dtype,
+        device=old_embeddings.device
+    )
+    
+    # Copy the original embeddings for the positions that overlap
+    new_embeddings[:original_max_position] = old_embeddings
+    
+    # For positions beyond the original, copy the last position embedding
+    if new_max_position > original_max_position:
+        new_embeddings[original_max_position:] = old_embeddings[-1].unsqueeze(0).expand(
+            new_max_position - original_max_position, -1
+        )
+    # Randomly initialize the remaining position embeddings
+    # if new_max_position > original_max_position:
+    #     new_embeddings[original_max_position:] = torch.nn.init.normal_(
+    #         torch.empty(new_max_position - original_max_position, old_embeddings.size(1),
+    #                     dtype=old_embeddings.dtype, device=old_embeddings.device),
+    #         mean=0.0, std=old_embeddings.std()
+    #     )
+    
+    # Replace the embeddings
+    model.roberta.embeddings.position_embeddings = torch.nn.Embedding.from_pretrained(
+        new_embeddings,
+        # freeze=model.roberta.embeddings.position_embeddings.weight.requires_grad
+        freeze=False
+    )
+    
+    # Update position IDs and token type IDs as before...
+    if hasattr(model.roberta.embeddings, "position_ids"):
+        new_position_ids = torch.arange(new_max_position).expand((1, -1))
+        model.roberta.embeddings.register_buffer("position_ids", new_position_ids)
+    
+    if hasattr(model.roberta.embeddings, "token_type_ids"):
+        new_token_type_ids = torch.zeros(1, new_max_position, dtype=torch.long)
+        model.roberta.embeddings.register_buffer("token_type_ids", new_token_type_ids)
+    
+    # Update the config
+    config.max_position_embeddings = new_max_position
+    model.config = config
+
+    model.resize_token_embeddings(len(tokenizer))
+    
+    return model, tokenizer
 
 
 def printd(*args: Any, **kwargs: Any) -> None:
@@ -215,3 +280,10 @@ def generate_inference(
         },
     )
     return arrange_inference_results(results, masked_token_strs, decoded_texts)
+
+def freeze_roberta_position_embeddings(model: PreTrainedModel) -> PreTrainedModel:
+    # Freeze all parameters first
+    for param in model.parameters():
+        param.requires_grad = False
+    model.roberta.embeddings.position_embeddings.weight.requires_grad = True
+    return model

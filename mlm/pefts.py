@@ -2,9 +2,21 @@ from typing import Any, Dict, List, Optional, TextIO
 
 import torch
 from peft import LoraConfig, PeftModel, get_peft_model, prepare_model_for_kbit_training
-from transformers import AutoModelForMaskedLM
+from transformers import AutoModelForMaskedLM, AutoTokenizer, PreTrainedTokenizer
 from utils import printd
 
+def get_tokenizer(config: Dict[str, Any]) -> PreTrainedTokenizer:
+    """
+    Returns the tokenizer based on the provided configuration.
+
+    Args:
+    - config (Dict[str, Any]): A dictionary containing the model configuration.
+
+    Returns:
+    - PreTrainedTokenizer: The tokenizer instance.
+    """
+    config = config.get("input", config)
+    return AutoTokenizer.from_pretrained(config["model"]["hf"])
 
 def get_model(
     config: Dict[str, Any],
@@ -44,8 +56,8 @@ def get_model(
         model = AutoModelForMaskedLM.from_pretrained(
             config.get("input", {}).get("model", {}).get("hf", ""),
             torch_dtype="auto",  # Uses BF16/FP16 if available
-            attn_implementation="flash_attention_2",  # Enable FlashAttention
-            reference_compile=False,
+            # attn_implementation="flash_attention_2",  # Enable FlashAttention
+            # reference_compile=False,
         ).to(device)
 
     # Check if LoRA (Low-Rank Adaptation) is required

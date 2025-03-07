@@ -329,9 +329,10 @@ class DataCollatorForKeywordMasking(DataCollatorForLanguageModeling):
         # If special token mask has been preprocessed, pop it from the dict.
         special_tokens_mask = batch.pop("special_tokens_mask", None)
         if self.mlm:
+            probability_matrix = batch.pop("probability_matrix", None)
             batch["input_ids"], batch["labels"] = self.torch_mask_tokens(
                 batch["input_ids"],
-                batch["probability_matrix"],
+                probability_matrix,
                 special_tokens_mask=special_tokens_mask,
             )
         else:
@@ -504,10 +505,11 @@ def preprocess_dataset(
     input_config: Dict[str, Any],
     data_src: str,
     n_rows: Optional[int] = None,
+    tokenizer: Optional[PreTrainedTokenizer] = None,
 ) -> Tuple[DatasetDict, PreTrainedTokenizer, DataCollatorForLanguageModeling]:
 
     dataset = get_dataset(input_config["dataset"], data_src, n_rows)
-    tokenizer = AutoTokenizer.from_pretrained(input_config["model"]["hf"])
+    tokenizer = tokenizer or AutoTokenizer.from_pretrained(input_config["model"]["hf"])
 
     tokenized_ds = dataset.map(
         lambda examples: tokenizer(
@@ -540,6 +542,7 @@ def preprocess_dataset_with_kw_masking(
     input_config: Dict[str, Any],
     data_src: str,
     n_rows: Optional[int] = None,
+    tokenizer: Optional[PreTrainedTokenizer] = None,
 ) -> Tuple[DatasetDict, PreTrainedTokenizer, DataCollatorForLanguageModeling]:
 
     kw_masking_type = input_config.get("dataset").get("kw_masking_type")
@@ -550,7 +553,7 @@ def preprocess_dataset_with_kw_masking(
         split=True,
         need_keyword=True,
     )
-    tokenizer = AutoTokenizer.from_pretrained(input_config["model"]["hf"])
+    tokenizer = tokenizer or AutoTokenizer.from_pretrained(input_config["model"]["hf"])
     if tokenizer.pad_token is None:
         tokenizer.add_special_tokens({"pad_token": "[PAD]"})
 
