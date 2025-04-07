@@ -1,0 +1,79 @@
+science_keyword_classification:
+  name: new_model  # Name of the model
+  desc: finetuned model from ModernBERT-base pretrained on 500K SDE data  # Description
+  tags: []  # Tags (can be used for metadata or filtering)
+  problem_type: multi_label_classification  # Type of problem, used for model selection
+  data:
+    path: /rhome/sawale/indus_traning/mlm-fine-tuning/downstream_unification/science_keyword_classification/science-keywords-classification/data/cmr/_cmr_collections_umm_unfiltered_one_hot_v3.parquet  # Path to training data
+  wandb:
+    project: science-keywords-recommender  # W&B project name
+    mode: online  # W&B logging mode
+    resume:
+      resume: false  # Whether to resume from a checkpoint
+      run_id: null  # W&B run ID to resume from
+      last_checkpoint_path: null  # Checkpoint path for resuming training
+  hyperparamaters:
+    batch_size: 16  # Batch size for training
+    learning_rate: 3.0e-5  # Initial learning rate
+    epochs: 10  # Total training epochs
+    patience: 4  # Early stopping patience
+    focal_loss_gamma: 2.0  # Gamma value for focal loss
+    weight_decay: 0.1  # Weight decay for regularization
+    loss_fn: focal_loss  # Loss function to use
+    freeze_base: false  # Whether to freeze base model layers
+    lr_scheduler_type: cosine  # Learning rate scheduler
+    warmup_ratio: 0.06  # Warmup ratio for LR scheduler
+    stratification_col: provider-id  # Column used for stratified splitting
+  eval_config:
+    topks: [1, 3, 5]  # Top-k metrics to evaluate
+    thresholds: [0.5, 0.6, 0.7]  # Thresholds for classification
+  previous_model:
+    wandb_runs:
+      - name: alpha-1.2.1  # Name of the previous run
+        desc: best model fine tuned using nasa-impact/nasa-smd-ibm-v0.1  # Description
+        run_id: /nasa-impact/science-keywords-recommender/runs/odqd74ey  # Run ID
+        tokenizer_path: nasa-impact/nasa-smd-ibm-v0.1 # Tokenizer path (can be local or hf path)
+tdamm:
+  name: new_model  # Name of the model
+  desc: finetuned model from ModernBERT-base pretrained on 500K SDE data  # Description
+  tags: []  # Tags (can be used for metadata or filtering)
+  problem_type: multi_label_classification  # Type of problem, used for model selection
+  data:
+    path: /rhome/sawale/indus_traning/mlm-fine-tuning/downstream_unification/tdamm/data/tdamm_data.parquet  # Path to training data
+  wandb:
+    project: tdamm-classification  # W&B project name
+    mode: online  # W&B logging mode
+    resume:
+      resume: false  # Whether to resume from a checkpoint
+      run_id: null  # W&B run ID to resume from
+      last_checkpoint_path: null  # Checkpoint path for resuming training
+  hyperparamaters:
+    batch_size: 4  # Batch size for training
+    learning_rate: 2.0e-5  # Initial learning rate
+    gradient_accumulation_steps: 1  # Gradient accumulation steps
+    epochs: 10  # Total training epochs
+    patience: 4  # Early stopping patience
+    focal_loss_gamma: 2.0  # Gamma value for focal loss
+    weight_decay: 0.1  # Weight decay for regularization
+    loss_fn: focal_loss  # Loss function to use
+    freeze_base: false  # Whether to freeze base model layers
+    lr_scheduler_type: cosine  # Learning rate scheduler
+    warmup_ratio: 0.06  # Warmup ratio for LR scheduler
+    bf16: true  # Whether to use bf16 precision
+    metric_for_best_model: precision_weighted  # Metric to use for selecting the best model
+    greater_is_better: true  # Whether a higher value is better for the selected metric
+    optim: adamw_torch
+  eval_config:
+    topks: [1, 3, 5]  # Top-k metrics to evaluate
+    thresholds: [0.5, 0.6, 0.7]  # Thresholds for classification
+  previous_model:
+    wandb_runs:
+      - name: alpha-1.2.1  # Name of the previous run
+        desc: best model fine tuned using nasa-impact/nasa-smd-ibm-v0.1  # Description
+        run_id: /nasa-impact/science-keywords-recommender/runs/odqd74ey  # Run ID
+        tokenizer_path: nasa-impact/nasa-smd-ibm-v0.1 # Tokenizer path (can be local or hf path)
+__common__:
+  base_model_path: /rhome/sawale/indus_traning/mlm-fine-tuning/mlm/tmp/models/timestamp_20250228_18-02-05/answerdotai/ModernBERT-base/checkpoint-296000  # Path to base model
+  nrows: null  # Limit number of rows (optional)
+  .env_path: /rhome/sawale/indus_traning/mlm-fine-tuning/.env  # Path to .env file
+  report_dir: ./reports/  # Directory to save reports
