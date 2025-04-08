@@ -485,7 +485,7 @@ class MultiLabelEval:
         )
 
         # Step 5: Convert to DataFrame
-        report_df = pd.DataFrame(report).transpose()
+        report_df = pd.DataFrame(report).transpose().round(4)
 
         return report_df
 

@@ -362,11 +362,43 @@ def get_model_from_wandb_inplace(wandb_runs):
 
 
 def add_classifcation_report_to_excel(worksheet, results, start_row, start_col):
+    reports = {}
+
     # transfom the result report into friendy format
     for model_name, result in results.items():
         for datasplit, report_split in result.items():
-            print(report_split["classification_report"])
-        pass
+            if datasplit not in reports:
+                reports[datasplit] = {}
+            if model_name not in reports[datasplit]:
+                reports[datasplit][model_name] = {}
+
+            reports[datasplit][model_name] = report_split["classification_report"]
+
+    # Now create DataFrames
+    dataframes = {}
+
+    for datasplit, models in reports.items():
+        model_dfs = []
+        for model_name, df in models.items():
+            # Create MultiIndex columns (Model Name, Metric)
+            df.columns = pd.MultiIndex.from_product([[model_name], df.columns])
+            model_dfs.append(df)
+
+        # Concatenate all models side by side
+        combined_df = pd.concat(model_dfs, axis=1)
+        dataframes[datasplit] = combined_df
+
+    # now add these dataframes to the excel sheet
+    dataframes = dict(sorted(dataframes.items()))
+    current_row = start_row
+    for datasplit, df in dataframes.items():
+        current_row = write_dataframe_to_excel(
+            worksheet=worksheet,
+            dataframe=df,
+            start_row=current_row,
+            start_col=start_col,
+            title=f"Classification Report for {datasplit}",
+        )
 
 
 def write_dataframe_to_excel(
@@ -404,7 +436,7 @@ def write_dataframe_to_excel(
     if title:
         cell = worksheet.cell(row=current_row, column=start_col, value=title)
         cell.font = Font(size=16, bold=True)
-        current_row += 2  # Add space after title
+        current_row += 2
 
     # Define styles
     thin_border = Border(
@@ -421,34 +453,89 @@ def write_dataframe_to_excel(
     center_alignment = Alignment(horizontal="center", vertical="center")
     bold_font = Font(bold=True)
 
-    # Write DataFrame with formatting
-    for i, row in enumerate(
-        openpyxl.utils.dataframe.dataframe_to_rows(dataframe, index=True, header=True),
-    ):
+    # Determine how many index levels and column levels
+    index_levels = (
+        dataframe.index.nlevels if isinstance(dataframe.index, pd.MultiIndex) else 1
+    )
+    column_levels = (
+        dataframe.columns.nlevels if isinstance(dataframe.columns, pd.MultiIndex) else 1
+    )
+
+    # Convert to rows with index and header
+    rows = list(dataframe_to_rows(dataframe, index=True, header=True))
+
+    # Write rows to Excel
+    for i, row in enumerate(rows):
         for j, value in enumerate(row):
             cell = worksheet.cell(
-                row=i + current_row,
-                column=j + start_col,
+                row=current_row + i,
+                column=start_col + j,
                 value=value,
             )
-
-            # Apply borders and alignment to all cells
             cell.border = thin_border
             cell.alignment = center_alignment
 
-            # Special formatting for headers (first row and first column)
-            if i == 0 or j == 0:
+            if i < column_levels or j < index_levels:
                 cell.font = bold_font
                 cell.fill = header_fill
 
+    # Merge cells for multi-index rows (optional but improves readability)
+    if isinstance(dataframe.columns, pd.MultiIndex):
+        for col_level in range(column_levels):
+            row_idx = current_row + col_level
+            last_val = None
+            span_start = None
+            for col_idx in range(index_levels, len(rows[0])):
+                val = worksheet.cell(row=row_idx, column=start_col + col_idx).value
+                if val != last_val:
+                    if span_start is not None and col_idx - span_start > 1:
+                        worksheet.merge_cells(
+                            start_row=row_idx,
+                            start_column=start_col + span_start,
+                            end_row=row_idx,
+                            end_column=start_col + col_idx - 1,
+                        )
+                    span_start = col_idx
+                    last_val = val
+            if span_start is not None and col_idx - span_start >= 1:
+                worksheet.merge_cells(
+                    start_row=row_idx,
+                    start_column=start_col + span_start,
+                    end_row=row_idx,
+                    end_column=start_col + col_idx,
+                )
+
+    if isinstance(dataframe.index, pd.MultiIndex):
+        for row_idx in range(column_levels, len(rows)):
+            for idx_level in range(index_levels):
+                val = worksheet.cell(
+                    row=current_row + row_idx,
+                    column=start_col + idx_level,
+                ).value
+                span_start = row_idx
+                while (
+                    row_idx + 1 < len(rows)
+                    and worksheet.cell(
+                        row=current_row + row_idx + 1,
+                        column=start_col + idx_level,
+                    ).value
+                    == val
+                ):
+                    row_idx += 1
+                if row_idx > span_start:
+                    worksheet.merge_cells(
+                        start_row=current_row + span_start,
+                        start_column=start_col + idx_level,
+                        end_row=current_row + row_idx,
+                        end_column=start_col + idx_level,
+                    )
+
     # Adjust column widths
-    for j in range(len(row)):
-        col_letter = openpyxl.utils.get_column_letter(j + start_col)
+    for j in range(len(rows[0])):
+        col_letter = get_column_letter(start_col + j)
         worksheet.column_dimensions[col_letter].width = 15
 
-    # Return the next row
-    next_row = current_row + len(dataframe) + 1  # +1 for header row
-    return next_row + 2  # Add some space after the DataFrame
+    return current_row + len(rows) + 2  # extra spacing
 
 
 def add_metrics_comparison(
