@@ -19,3 +19,7 @@ mlm/data/*
 mlm/tmp/*
 mlm/wandb/*
 wandb/*
+mlm/embedding_analysis/model_embeddings.pt
+mlm/general_analysis/artifacts/*
+mlm/general_analysis/wandb/*
+mlm/wandb/*
