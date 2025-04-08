@@ -88,7 +88,7 @@ parser.add_argument(
 parser.add_argument(
     "--wandb_mode",
     type=str,
-    default="online",
+    default="offline",
     required=False,
     help="online, offline, disabled",
 )
@@ -158,9 +158,7 @@ if __name__ == "__main__":
             n_rows,
         )
 
-    sample = next(iter(lm_dataset["train"]))  # Get a sample batch
-    input_ids_device = sample["input_ids"].device
-    print(f"Dataset is on: {input_ids_device}")
+    print(len(lm_dataset["train"]["input_ids"][0]))
 
     if resume_checkpoint_path is not None:
         output_dir = "/".join(resume_checkpoint_path.split("/")[:-1])

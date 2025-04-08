@@ -329,11 +329,20 @@ class DataCollatorForKeywordMasking(DataCollatorForLanguageModeling):
         # If special token mask has been preprocessed, pop it from the dict.
         special_tokens_mask = batch.pop("special_tokens_mask", None)
         if self.mlm:
-            batch["input_ids"], batch["labels"] = self.torch_mask_tokens(
-                batch["input_ids"],
-                batch["probability_matrix"],
-                special_tokens_mask=special_tokens_mask,
-            )
+            probability_matrix = batch.pop(
+                "probability_matrix",
+                None,
+            )  # Remove it before returning
+            if probability_matrix is not None:
+                batch["input_ids"], batch["labels"] = self.torch_mask_tokens(
+                    batch["input_ids"],
+                    probability_matrix,
+                    special_tokens_mask=special_tokens_mask,
+                )
+            else:
+                raise ValueError(
+                    "Expected 'probability_matrix' in batch but not found.",
+                )
         else:
             labels = batch["input_ids"].clone()
             if self.tokenizer.pad_token_id is not None:
@@ -350,7 +359,8 @@ class DataCollatorForKeywordMasking(DataCollatorForLanguageModeling):
         special_tokens_mask: Optional[Any] = None,
     ) -> Tuple[Any, Any]:
         """
-        Prepare masked tokens inputs/labels for masked language modeling: keyword_masking_probablity of time use keywords for masking, rest of the time use random masking.
+        Prepare masked tokens inputs/labels for masked language modeling:
+        keyword_masking_probablity of time use keywords for masking, rest of the time use random masking.
         """
         import torch
 
@@ -466,19 +476,22 @@ def get_dataset(
             )
             ds = DatasetDict(load_dataset(**new_data_path))
 
-    if n_rows:
-        ds = DatasetDict(
-            {split: ds[split].select(range(n_rows)) for split in ds.keys()},
-        )
-
     if split:
-        return split_dataset(
+        ds = split_dataset(
             ds,
             dataset_config["val_split"],
             dataset_config["test_split"],
         )
-    else:
-        return ds
+
+    if n_rows:
+        ds = DatasetDict(
+            {
+                split: ds[split].select(range(min(n_rows, len(ds[split]))))
+                for split in ds.keys()
+            },
+        )
+
+    return ds
 
 
 def chunk_texts(
@@ -627,6 +640,11 @@ def preprocess_dataset_with_kw_masking(
         data_collator = DataCollatorForKeywordMasking(
             tokenizer,
             return_tensors="pt",
+        )
+    else:
+        data_collator = DataCollatorForLanguageModeling(
+            tokenizer=tokenizer,
+            mlm_probability=input_config["dataset"]["mlm_probability"],
         )
 
     return tokenized_ds, tokenizer, data_collator

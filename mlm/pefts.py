@@ -41,12 +41,18 @@ def get_model(
     else:
         # Load the model without quantization
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        model = AutoModelForMaskedLM.from_pretrained(
-            config.get("input", {}).get("model", {}).get("hf", ""),
-            torch_dtype="auto",  # Uses BF16/FP16 if available
-            attn_implementation="flash_attention_2",  # Enable FlashAttention
-            reference_compile=False,
-        ).to(device)
+        try:
+            model = AutoModelForMaskedLM.from_pretrained(
+                config.get("input", {}).get("model", {}).get("hf", ""),
+                torch_dtype="auto",  # Uses BF16/FP16 if available
+                attn_implementation="flash_attention_2",  # Enable FlashAttention
+                reference_compile=False,
+            ).to(device)
+        except Exception as e:
+            model = AutoModelForMaskedLM.from_pretrained(
+                config.get("input", {}).get("model", {}).get("hf", ""),
+                torch_dtype="auto",  # Uses BF16/FP16 if available
+            ).to(device)
 
     # Check if LoRA (Low-Rank Adaptation) is required
     if "lora" in {tech.lower() for tech in train_techs}:

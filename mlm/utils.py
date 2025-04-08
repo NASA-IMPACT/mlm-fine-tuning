@@ -36,6 +36,7 @@ def mask_random_token(
     Args:
         tokenized_example: Dictionary with tokenized data containing "input_ids".
         tokenizer: Tokenizer to handle token encoding and decoding.
+        n_max_masks: Max of tokens to mask in the input_ids.
 
     Returns:
         The updated example with one token masked and the original masked token string.
