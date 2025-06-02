@@ -3,9 +3,7 @@ import json
 import sys
 
 import yaml
-from science_keyword_classification.train_and_eval import (
-    train_and_eval_model as train_and_eval_skc,
-)
+from trainers.train import HFTrainer
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--config_path", type=str, default="config.json", required=False)
@@ -39,9 +37,14 @@ if wandb_mode:
         config[downstream]["wandb"]["mode"] = wandb_mode
 
 
+# if __name__ == "__main__":
+#     for downstream in downstreams:
+#         if downstream == "science_keyword_classification":
+#             model, evals, wandb_runs = train_and_eval_skc(config)
+#         else:
+#             print(f"Downstream '{downstream}' not found in downstreams")
+
 if __name__ == "__main__":
     for downstream in downstreams:
-        if downstream == "science_keyword_classification":
-            model, evals, wandb_runs = train_and_eval_skc(config)
-        else:
-            print(f"Downstream '{downstream}' not found in downstreams")
+        trainer = HFTrainer(config, downstream)
+        trainer.train()

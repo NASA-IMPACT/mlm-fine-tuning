@@ -5,6 +5,13 @@ science_keyword_classification:
   problem_type: multi_label_classification  # Type of problem, used for model selection
   data:
     path: /rhome/sawale/indus_traning/mlm-fine-tuning/downstream_unification/science_keyword_classification/science-keywords-classification/data/cmr/_cmr_collections_umm_unfiltered_one_hot_v3.parquet  # Path to training data
+    format: parquet
+    custom_preprocessor: null # optional
+    input_text_col: Abstract
+    test_size: 0.1
+    val_size: 0.1 # can be null (if null, val would be same as test)
+    stratification_col: provider-id  # Additional column used for stratified splitting (can be set to null if no stratification is needed)
+    non_target_cols: [concept-id, provider-id, Abstract] # any other column that these are concidered as target columns
   wandb:
     project: science-keywords-recommender  # W&B project name
     mode: online  # W&B logging mode
@@ -12,18 +19,40 @@ science_keyword_classification:
       resume: false  # Whether to resume from a checkpoint
       run_id: null  # W&B run ID to resume from
       last_checkpoint_path: null  # Checkpoint path for resuming training
-  hyperparamaters:
-    batch_size: 16  # Batch size for training
-    learning_rate: 3.0e-5  # Initial learning rate
-    epochs: 10  # Total training epochs
-    patience: 4  # Early stopping patience
-    focal_loss_gamma: 2.0  # Gamma value for focal loss
+  hyperparamaters: # directly goes to TrainingArguments
+    per_device_train_batch_size: 4  # Batch size for training
+    per_device_eval_batch_size: 4  # Batch size for evaluation
+    eval_strategy: steps  # Evaluation strategy
+    eval_steps: 10
+    save_steps: 10
+    logging_steps: 10
+    num_train_epochs: 10  # Total training epochs
+    save_total_limit: 2  # Limit the total amount of checkpoints
+    save_strategy: steps
+    remove_unused_columns: true
+    logging_dir: ./logs
+    optim: adamw_torch
+    learning_rate: 2.0e-5  # Initial learning rate
     weight_decay: 0.1  # Weight decay for regularization
-    loss_fn: focal_loss  # Loss function to use
-    freeze_base: false  # Whether to freeze base model layers
+    overwrite_output_dir: true
+    do_train: true
+    do_eval: true
+    report_to: wandb
+    load_best_model_at_end: true  # Load the best model at the end of training based on evaluation metric
+    metric_for_best_model: eval_loss  # Metric to monitor for the best model
+    greater_is_better: false
     lr_scheduler_type: cosine  # Learning rate scheduler
     warmup_ratio: 0.06  # Warmup ratio for LR scheduler
-    stratification_col: provider-id  # Column used for stratified splitting
+    fp16: false
+    bf16: true
+    gradient_accumulation_steps: 1  # Gradient accumulation steps
+  additional_hyperparamaters:
+    freeze_base: false  # Whether to freeze base model layers
+    patience: 4  # Early stopping patience
+    loss_fn: focal_loss  # Loss function to use (cross entropy is default)
+    focal_loss_gamma: 2.0  # Gamma value for focal loss
+    tokenizer_max_length: 512  # Maximum length for tokenizer
+
   eval_config:
     topks: [1, 3, 5]  # Top-k metrics to evaluate
     thresholds: [0.5, 0.6, 0.7]  # Thresholds for classification
@@ -33,6 +62,10 @@ science_keyword_classification:
         desc: best model fine tuned using nasa-impact/nasa-smd-ibm-v0.1  # Description
         run_id: /nasa-impact/science-keywords-recommender/runs/odqd74ey  # Run ID
         tokenizer_path: nasa-impact/nasa-smd-ibm-v0.1 # Tokenizer path (can be local or hf path)
+  seed: 42
+
+
+
 tdamm:
   name: new_model  # Name of the model
   desc: finetuned model from ModernBERT-base pretrained on 500K SDE data  # Description
@@ -47,22 +80,38 @@ tdamm:
       resume: false  # Whether to resume from a checkpoint
       run_id: null  # W&B run ID to resume from
       last_checkpoint_path: null  # Checkpoint path for resuming training
-  hyperparamaters:
-    batch_size: 4  # Batch size for training
+  hyperparamaters: # directly goes to TrainingArguments
+    per_device_train_batch_size: 4  # Batch size for training
+    per_device_eval_batch_size: 4  # Batch size for evaluation
+    eval_strategy: steps  # Evaluation strategy
+    eval_steps: 10
+    save_steps: 10
+    logging_steps: 10
+    num_train_epochs: 10  # Total training epochs
+    save_total_limit: 2  # Limit the total amount of checkpoints
+    save_strategy: steps,
+    remove_unused_columns: true
+    logging_dir: ./logs
+    optim: adamw_torch
     learning_rate: 2.0e-5  # Initial learning rate
-    gradient_accumulation_steps: 1  # Gradient accumulation steps
-    epochs: 10  # Total training epochs
-    patience: 4  # Early stopping patience
-    focal_loss_gamma: 2.0  # Gamma value for focal loss
     weight_decay: 0.1  # Weight decay for regularization
-    loss_fn: focal_loss  # Loss function to use
-    freeze_base: false  # Whether to freeze base model layers
+    overwrite_output_dir: true
+    do_train: true
+    do_eval: true
+    report_to: wandb
+    load_best_model_at_end: true  # Load the best model at the end of training based on evaluation metric
+    metric_for_best_model: eval_loss  # Metric to monitor for the best model
+    greater_is_better: false
     lr_scheduler_type: cosine  # Learning rate scheduler
     warmup_ratio: 0.06  # Warmup ratio for LR scheduler
-    bf16: true  # Whether to use bf16 precision
-    metric_for_best_model: precision_weighted  # Metric to use for selecting the best model
-    greater_is_better: true  # Whether a higher value is better for the selected metric
-    optim: adamw_torch
+    fp16: false
+    bf16: true
+    gradient_accumulation_steps: 1  # Gradient accumulation steps
+
+    patience: 4  # Early stopping patience
+    focal_loss_gamma: 2.0  # Gamma value for focal loss
+    loss_fn: focal_loss  # Loss function to use
+    freeze_base: false  # Whether to freeze base model layers
   eval_config:
     topks: [1, 3, 5]  # Top-k metrics to evaluate
     thresholds: [0.5, 0.6, 0.7]  # Thresholds for classification
@@ -73,7 +122,7 @@ tdamm:
         run_id: /nasa-impact/science-keywords-recommender/runs/odqd74ey  # Run ID
         tokenizer_path: nasa-impact/nasa-smd-ibm-v0.1 # Tokenizer path (can be local or hf path)
 __common__:
-  base_model_path: /rhome/sawale/indus_traning/mlm-fine-tuning/mlm/tmp/models/timestamp_20250228_18-02-05/answerdotai/ModernBERT-base/checkpoint-296000  # Path to base model
+  base_model_path: nasa-impact/nasa-smd-ibm-v0.1  # Path to base model
   nrows: null  # Limit number of rows (optional)
   .env_path: /rhome/sawale/indus_traning/mlm-fine-tuning/.env  # Path to .env file
   report_dir: ./reports/  # Directory to save reports
