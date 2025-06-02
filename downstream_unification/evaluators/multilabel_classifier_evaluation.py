@@ -1,5 +1,6 @@
 import hashlib
 import os
+import warnings
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -137,6 +138,24 @@ class MultiLabelEval:
         device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model.to(device)
 
+    def has_real_id2label(self):
+        """
+        Returns True if config.id2label exists and is NOT just the default
+        {'0': 'LABEL_0', '1': 'LABEL_1', …} mapping.
+        """
+        if not hasattr(self.model.config, "id2label") or not self.model.config.id2label:
+            return False
+
+        # Build the “generic” pattern list
+        default_labels = {i: f"LABEL_{i}" for i in range(self.model.config.num_labels)}
+
+        # If it matches exactly the default, treat as “not set”
+        if self.model.config.id2label == default_labels:
+            return False
+
+        # Otherwise, assume the user provided a custom map
+        return True
+
     def _get_prediction_table(self, df: pd.DataFrame, batch_size: int = 32):
         """
         Generates a prediction table for the given DataFrame using the model.
@@ -153,14 +172,19 @@ class MultiLabelEval:
         """
         self.model.eval()
         # Get label columns from model config
-        if hasattr(self.model.config, "id2label") and self.model.config.id2label:
+        if self.has_real_id2label():
             label_cols = [
                 label for idx, label in sorted(self.model.config.id2label.items())
             ]
         else:
-            raise ValueError(
-                "Model config is missing 'id2label'. Please provide label columns.",
+            # raise ValueError(
+            #     "Model config is missing 'id2label'. Please provide label columns.",
+            # )
+            warnings.warn(
+                "Model config.id2label is missing or still set to generic 'LABEL_i'. Please provide a custom id2label mapping. Currently using the label_cols provided in the constructor.",
             )
+            label_cols = self.label_cols
+
         num_batches = (len(df) + batch_size - 1) // batch_size
         all_probablities = []
 

@@ -107,6 +107,8 @@ class BaseTrainer(ABC):
         set_seed(self.config.get(self.key).get("seed"))
         load_dotenv(self.config.get("__common__").get(".env_path"))
 
+        self.target_columns = None  # needs to be defined in subclasses
+
     def generate_report(self):
         # finding the wandb run
         remove_domain = lambda url: urlparse(url).path
@@ -261,11 +263,15 @@ class HFTrainer(BaseTrainer):
         stratification_col = (
             self.config.get(self.key).get("data").get("stratification_col")
         )
-        input_columns = [self.config.get(self.key).get("data").get("input_text_col")]
-        non_target_columns = (
+        self.input_columns = [
+            self.config.get(self.key).get("data").get("input_text_col"),
+        ]
+        self.non_target_columns = (
             self.config.get(self.key).get("data").get("non_target_cols")
         )
-        self.target_columns = [c for c in data.columns if c not in non_target_columns]
+        self.target_columns = [
+            c for c in data.columns if c not in self.non_target_columns
+        ]
         test_size = self.config.get(self.key).get("data").get("test_size")
         val_size = self.config.get(self.key).get("data").get("val_size", 0)
 
@@ -277,7 +283,7 @@ class HFTrainer(BaseTrainer):
                 test_input,
                 test_target,
             ) = iterative_train_test_split(
-                data[input_columns].values,  # X
+                data[self.input_columns].values,  # X
                 data[self.target_columns].values,  # y
                 test_size=(val_size + test_size),
             )
@@ -298,7 +304,7 @@ class HFTrainer(BaseTrainer):
                 test_target,
             ) = self.column_stratification_for_multilabel(
                 data,
-                input_columns,
+                self.input_columns,
                 self.target_columns,
                 stratification_col,
                 val_size,
@@ -306,12 +312,17 @@ class HFTrainer(BaseTrainer):
             )
 
         return (
-            pd.DataFrame(train_input, columns=input_columns),
+            pd.DataFrame(train_input, columns=self.input_columns),
             pd.DataFrame(train_target, columns=self.target_columns),
-            pd.DataFrame(val_input, columns=input_columns),
+            pd.DataFrame(val_input, columns=self.input_columns),
             pd.DataFrame(val_target, columns=self.target_columns),
-            pd.DataFrame(test_input, columns=input_columns),
+            pd.DataFrame(test_input, columns=self.input_columns),
             pd.DataFrame(test_target, columns=self.target_columns),
+            {
+                "input_columns": self.input_columns,
+                "target_columns": self.target_columns,
+                "non_target_columns": self.non_target_columns,
+            },
         )
 
     def get_splits_for_multiclass(self, data: pd.DataFrame):
@@ -361,6 +372,11 @@ class HFTrainer(BaseTrainer):
             val_y,
             test_x,
             test_y,
+            {
+                "input_columns": input_columns,
+                "target_columns": target_columns,
+                "non_target_columns": non_target_columns,
+            },
         )
 
     def split_data(self, df: pd.DataFrame):
@@ -376,6 +392,7 @@ class HFTrainer(BaseTrainer):
                 val_y,
                 test_x,
                 test_y,
+                var_info,
             ) = self.get_splits_for_multilabel(df)
         # check if the probelm type is multiclass / binary
         elif self.config.get(self.key).get("problem_type") in [
@@ -389,6 +406,7 @@ class HFTrainer(BaseTrainer):
                 val_y,
                 test_x,
                 test_y,
+                var_info,
             ) = self.get_splits_for_multiclass(df)
         else:
             raise NotImplementedError(
@@ -403,7 +421,7 @@ class HFTrainer(BaseTrainer):
             )
             val_x = test_x
             val_y = test_y
-        return train_x, train_y, val_x, val_y, test_x, test_y
+        return train_x, train_y, val_x, val_y, test_x, test_y, var_info
 
     def get_data(self):
         path = self.config.get(self.key).get("data").get("path")
@@ -419,11 +437,11 @@ class HFTrainer(BaseTrainer):
             raise ValueError(
                 f"Format '{fmt}' is not supported. Please use 'csv', 'parquet', or 'json'.",
             )
-
         return df
 
     def preprocess_data(self):
         print("*" * 10 + "Preprocessing" + "*" * 10)
+        df = self.get_data()
         nrows = self.config.get("__common__").get("nrows")
         # check if custom data preprocessor is provided
         if self.config.get(self.key).get("data").get("custom_preprocessor"):
@@ -441,18 +459,23 @@ class HFTrainer(BaseTrainer):
             )
             module = importlib.import_module(module_name)
             method = getattr(module, method_name)
-            train_x, train_y, val_x, val_y, test_x, test_y = method(
+            train_x, train_y, val_x, val_y, test_x, test_y, var_info = method(
+                df,
                 self.config.get(self.key).get("data"),
                 seed=self.config.get(self.key).get("seed"),
                 nrows=nrows,
             )
         else:
-            # default data processing
-            df = self.get_data()
             if nrows:
                 df = df.head(nrows)
             # split data for train, test and val
-            train_x, train_y, val_x, val_y, test_x, test_y = self.split_data(df)
+            train_x, train_y, val_x, val_y, test_x, test_y, var_info = self.split_data(
+                df,
+            )
+
+        # Dynamically set attributes for every key in info_dict:
+        for key, value in var_info.items():
+            setattr(self, key, value)
 
         print(f"Train shapes: {train_x.shape}, {train_y.shape}")
         print(f"Val shapes: {val_x.shape}, {val_y.shape}")

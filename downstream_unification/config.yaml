@@ -65,14 +65,18 @@ science_keyword_classification:
   seed: 42
 
 
-
 tdamm:
   name: new_model  # Name of the model
   desc: finetuned model from ModernBERT-base pretrained on 500K SDE data  # Description
   tags: []  # Tags (can be used for metadata or filtering)
   problem_type: multi_label_classification  # Type of problem, used for model selection
   data:
-    path: /rhome/sawale/indus_traning/mlm-fine-tuning/downstream_unification/tdamm/data/tdamm_data.parquet  # Path to training data
+    path: /rhome/sawale/indus_traning/mlm-fine-tuning/downstream_unification/tdamm/tdamm_training_data_multi_labelled.json  # Path to training data
+    format: json
+    custom_preprocessor: custom_preprocessors.preprocess.tdamm_preprocess # optional
+    input_text_col: full_text
+    test_size: 0.2
+    non_target_cols: [link, title, full_text] # any other column that these are concidered as target columns
   wandb:
     project: tdamm-classification  # W&B project name
     mode: online  # W&B logging mode
@@ -87,9 +91,9 @@ tdamm:
     eval_steps: 10
     save_steps: 10
     logging_steps: 10
-    num_train_epochs: 10  # Total training epochs
+    num_train_epochs: 2  # Total training epochs
     save_total_limit: 2  # Limit the total amount of checkpoints
-    save_strategy: steps,
+    save_strategy: steps
     remove_unused_columns: true
     logging_dir: ./logs
     optim: adamw_torch
@@ -107,20 +111,25 @@ tdamm:
     fp16: false
     bf16: true
     gradient_accumulation_steps: 1  # Gradient accumulation steps
-
-    patience: 4  # Early stopping patience
-    focal_loss_gamma: 2.0  # Gamma value for focal loss
-    loss_fn: focal_loss  # Loss function to use
+  additional_hyperparamaters:
     freeze_base: false  # Whether to freeze base model layers
+    patience: 4  # Early stopping patience
+    loss_fn: focal_loss  # Loss function to use (cross entropy is default)
+    focal_loss_gamma: 2.0  # Gamma value for focal loss
+    tokenizer_max_length: 512  # Maximum length for tokenizer
+
   eval_config:
     topks: [1, 3, 5]  # Top-k metrics to evaluate
     thresholds: [0.5, 0.6, 0.7]  # Thresholds for classification
   previous_model:
     wandb_runs:
-      - name: alpha-1.2.1  # Name of the previous run
+      - name: astroBERT-80-epochs-final-model  # Name of the previous run
         desc: best model fine tuned using nasa-impact/nasa-smd-ibm-v0.1  # Description
-        run_id: /nasa-impact/science-keywords-recommender/runs/odqd74ey  # Run ID
-        tokenizer_path: nasa-impact/nasa-smd-ibm-v0.1 # Tokenizer path (can be local or hf path)
+        run_id: /nasa-impact/tdamm-classification/runs/o1w396zi  # Run ID
+        tokenizer_path: adsabs/astroBERT # Tokenizer path (can be local or hf path)
+  seed: 42
+
+
 __common__:
   base_model_path: nasa-impact/nasa-smd-ibm-v0.1  # Path to base model
   nrows: null  # Limit number of rows (optional)
