@@ -195,7 +195,7 @@ def generate_inference(
         "fill-mask",
         model=model_save_loc,
         tokenizer=tokenizer,
-        device_map="auto",
+        # device_map="auto",
     )
 
     # filter decoded_texts: remove those without <mask> token
@@ -213,6 +213,7 @@ def generate_inference(
             "truncation": True,
             "max_length": max_length,
             "add_special_tokens": False,
+            # "add_special_tokens": True,
         },
     )
     return arrange_inference_results(results, masked_token_strs, decoded_texts)

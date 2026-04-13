@@ -1,16 +1,13 @@
 import hashlib
 import json
-import os
-import re
 from collections.abc import Mapping
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import diskcache
-import numpy as np
 
 # from sentence_transformers import SentenceTransformer
 import torch
-from data_prep.generate_keyword import generate_keyword
+from data_prep.generate_keyword_2 import generate_keyword
 from datasets import Dataset, DatasetDict, load_dataset
 from nltk.metrics import edit_distance
 from transformers import (
@@ -548,7 +545,7 @@ def preprocess_dataset(
     return lm_dataset, tokenizer, data_collator
 
 
-@disk_cache
+# @disk_cache
 def preprocess_dataset_with_kw_masking(
     input_config: Dict[str, Any],
     data_src: str,

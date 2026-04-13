@@ -6,17 +6,13 @@ import random
 
 import numpy as np
 import torch
+from dotenv import load_dotenv
 
 # from accelerate.commands.config.update import description
-from evals import compute_metrics, generate_eval_table
+from evals import generate_eval_table
 from pefts import get_model
 from preprocess_data import preprocess_dataset, preprocess_dataset_with_kw_masking
-from transformers import (
-    AutoModelForMaskedLM,
-    EarlyStoppingCallback,
-    Trainer,
-    TrainingArguments,
-)
+from transformers import EarlyStoppingCallback, Trainer, TrainingArguments
 from utils import generate_inference, printd
 
 import wandb
@@ -34,9 +30,6 @@ def set_seed(seed=42) -> None:
 
 
 set_seed(42)
-
-
-from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -133,12 +126,13 @@ wandb.login(key=os.getenv("WANDB_API_KEY"))
 if resume_run_id is not None:
     wandb.init(
         project="mlm-fine-tuning",
+        entity="nasa-impact",
         mode=wandb_mode,
         id=resume_run_id,
         resume="must",
     )
 else:
-    wandb.init(project="mlm-fine-tuning", mode=wandb_mode)
+    wandb.init(project="mlm-fine-tuning", entity="nasa-impact", mode=wandb_mode)
 
 if __name__ == "__main__":
     model = get_model(config, train_techs, file)
@@ -216,7 +210,7 @@ if __name__ == "__main__":
 
     printd("*" * 10 + "Started Evaluation" + "*" * 10, file=file)
     eval_report_df = generate_eval_table(trainer, lm_dataset)
-    wandb.log({f"eval_report": wandb.Table(dataframe=eval_report_df)})
+    wandb.log({"eval_report": wandb.Table(dataframe=eval_report_df)})
 
     printd("*" * 10 + "Started Inference" + "*" * 10, file=file)
     inference_df = generate_inference(
@@ -230,7 +224,7 @@ if __name__ == "__main__":
             config.get("input").get("dataset").get("kw_masking_type").values(),
         ),
     )
-    wandb.log({f"inference": wandb.Table(dataframe=inference_df)})
+    wandb.log({"inference": wandb.Table(dataframe=inference_df)})
     wandb.finish()
 
 file.close()
