@@ -19,7 +19,7 @@ INDUS-SDE is a domain-adapted encoder pretrained with **Weighted Dynamic Masking
 | [`mlm/`](mlm/) | MLM pretraining with Weighted Dynamic Masking — masking logic (`preprocess_data.py`), per-document YAKE keyword extraction (`keyword_extraction/`, `data_prep/generate_keyword*.py`), training entry point (`main.py`, `runn.sh`), configs (`config_*.json`), and MLM/masking analysis (`general_analysis/`, `embedding_analysis/`) |
 | [`downstream_unification/`](downstream_unification/) | Multi-task fine-tuning + evaluation for the curation classifiers (GKR keyword recommendation, TDAMM, SMD division, content relevancy) — see its [README](downstream_unification/README.md) |
 
-> **Branches:** `develop` carries the core WDM pretraining pipeline; **extended-context (1024-token) pretraining** lives on [`feature/indus-extended`](https://github.com/NASA-IMPACT/mlm-fine-tuning/tree/feature/indus-extended).
+> **Branches:** `develop` carries the core WDM pretraining pipeline; **extended-context (1024-token) pretraining** — additional position embeddings (513–1024) initialized by copying the learned 1–512 embeddings, not randomly — lives on [`feature/indus-extended`](https://github.com/NASA-IMPACT/mlm-fine-tuning/tree/feature/indus-extended).
 
 ### Models (Hugging Face)
 | Artifact | Model |
